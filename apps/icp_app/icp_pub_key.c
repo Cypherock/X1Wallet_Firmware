@@ -425,23 +425,19 @@ void icp_get_pub_keys(icp_query_t *query) {
     char address[ICP_ACCOUNT_ADDRESS_LENGTH] = "";
 
     uint8_t public_key_digest[32];
-    hasher_Raw(HASHER_SHA2_RIPEMD,
-               pubkey_list[0],
-               ICP_PUB_KEY_SIZE,
-               public_key_digest);
+    hasher_Raw(
+        HASHER_SHA2, pubkey_list[0], ICP_PUB_KEY_SIZE, public_key_digest);
 
     uint8_t prefixed_account_id[ICP_PREFIXED_ACCOUNT_ID_LENGTH];
     prefixed_account_id[0] = 0x00;
     memcpy(prefixed_account_id + 1, public_key_digest, 20);
 
     // icp uses different base58 dictionary, that's why a custom function
-    if (!base58_encode_check_with_custom_digits_order(
-            prefixed_account_id,
-            ICP_PREFIXED_ACCOUNT_ID_LENGTH,
-            HASHER_SHA2D,
-            address,
-            ICP_ACCOUNT_ADDRESS_LENGTH + 1,
-            ICP_BASE58_DIGITS_ORDERED)) {
+    if (!base58_encode_check(prefixed_account_id,
+                             ICP_PREFIXED_ACCOUNT_ID_LENGTH,
+                             HASHER_SHA2D,
+                             address,
+                             ICP_ACCOUNT_ADDRESS_LENGTH + 1)) {
       icp_send_error(ERROR_COMMON_ERROR_UNKNOWN_ERROR_TAG, 2);
       return;
     }

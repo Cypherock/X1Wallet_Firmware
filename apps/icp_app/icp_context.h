@@ -23,8 +23,6 @@
 #define ICP_PUB_KEY_SIZE 33
 #define ICP_PREFIXED_ACCOUNT_ID_LENGTH 21
 #define ICP_ACCOUNT_ADDRESS_LENGTH 34
-#define ICP_BASE58_DIGITS_ORDERED                                              \
-  "rpshnaf39wBUDNEGHJKLM4PQRST7VWXYZ2bcdeCg65jkm8oFqi1tuvAxyz"
 
 /*****************************************************************************
  * TYPEDEFS
