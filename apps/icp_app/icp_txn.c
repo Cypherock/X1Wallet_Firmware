@@ -63,6 +63,7 @@
 
 #include <stdint.h>
 
+#include "base58.h"
 #include "icp_api.h"
 #include "icp_context.h"
 #include "icp_helpers.h"
@@ -329,14 +330,11 @@ static bool get_user_verification(void) {
   prefixed_account_id[0] = 0x00;
   memcpy(prefixed_account_id + 1, decoded_utxn->Destination, 20);
 
-  // icp uses different base58 dictionary, that's why a custom function
-  if (!base58_encode_check_with_custom_digits_order(
-          prefixed_account_id,
-          ICP_PREFIXED_ACCOUNT_ID_LENGTH,
-          HASHER_SHA2D,
-          to_address,
-          ICP_ACCOUNT_ADDRESS_LENGTH + 1,
-          ICP_BASE58_DIGITS_ORDERED)) {
+  if (!base58_encode_check(prefixed_account_id,
+                           ICP_PREFIXED_ACCOUNT_ID_LENGTH,
+                           HASHER_SHA2D,
+                           to_address,
+                           ICP_ACCOUNT_ADDRESS_LENGTH + 1)) {
     icp_send_error(ERROR_COMMON_ERROR_UNKNOWN_ERROR_TAG, 2);
     return false;
   }
