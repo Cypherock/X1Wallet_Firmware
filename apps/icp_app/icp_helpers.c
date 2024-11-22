@@ -62,6 +62,8 @@
 
 #include "icp_helpers.h"
 
+#include <stdint.h>
+
 /*****************************************************************************
  * EXTERN VARIABLES
  *****************************************************************************/
@@ -103,10 +105,42 @@ bool icp_derivation_path_guard(const uint32_t *path, uint8_t levels) {
   uint32_t purpose = path[0], coin = path[1], account = path[2],
            change = path[3], address = path[4];
 
-  // m/44'/144'/0'/0/i
+  // m/44'/223'/0'/0/i
   status = (ICP_PURPOSE_INDEX == purpose && ICP_COIN_INDEX == coin &&
             ICP_ACCOUNT_INDEX == account && ICP_CHANGE_INDEX == change &&
             is_non_hardened(address));
 
   return status;
+}
+
+uint32_t update_crc32(uint32_t crc_in, uint8_t byte) {
+  uint32_t crc = crc_in;
+  uint32_t in =
+      byte | 0x100;    // Initialize the input byte for the CRC calculation
+
+  // Process each bit of the byte
+  do {
+    crc <<= 1;         // Shift the CRC register to the left
+    in <<= 1;          // Shift the input byte to the left
+    if (in & 0x100)    // Check if the 9th bit of the input byte is 1
+      crc |= 1;        // If so, set the least significant bit of CRC to 1
+
+    // If the CRC exceeds 32 bits, perform a modulo operation with the
+    // polynomial 0x04C11DB7
+    if (crc & 0x100000000) {
+      crc ^= 0x04C11DB7;    // The CRC-32 polynomial is 0x04C11DB7
+    }
+  } while (
+      in &
+      0x10000);    // Continue until all bits in the input byte are processed
+
+  return crc;
+}
+
+uint32_t get_crc32(const uint8_t *input, size_t input_size) {
+  uint32_t crc = 0;
+  for (size_t index = 0; index < input_size; index++) {
+    crc = update_crc32(crc, input[index]);
+  }
+  return crc;
 }
