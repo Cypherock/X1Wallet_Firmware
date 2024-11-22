@@ -21,8 +21,11 @@
 #define ICP_NAME "ICP"
 #define ICP_LUNIT "ICP"
 #define ICP_PUB_KEY_SIZE 33
-#define ICP_PREFIXED_ACCOUNT_ID_LENGTH 21
-#define ICP_ACCOUNT_ADDRESS_LENGTH 34
+#define ICP_PRINCIPAL_ID_LENGTH 29
+#define ICP_ACCOUNT_ID_LENGTH 32
+
+#define ICP_SELF_AUTH_ID_TAG 0x02
+#define DER_ENCODED_PUB_KEY_MAX_SIZE 200
 
 /*****************************************************************************
  * TYPEDEFS
@@ -75,8 +78,6 @@ typedef enum { Account = 1, Owner = 2, Destination = 3 } ACCOUNTFIELDCODE;
 
 typedef enum { NFTokenOffers = 4 } VECTOR256FILEDCODE;
 
-// See
-// https://github.com/ICPLF/icpl.js/blob/main/packages/ripple-binary-codec/src/enums/definitions.json
 typedef enum {
   no_type = -1,
   payment = 0,
