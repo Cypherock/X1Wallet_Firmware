@@ -390,6 +390,11 @@ extern const char *ui_text_inheritance_decryption_flow_confirmation_generic;
 extern const char *ui_text_inheritance_decryption_flow_success;
 extern const char *ui_text_inheritance_decryption_flow_failure;
 
+// ICP
+
+extern const char *ui_text_principal_id;
+extern const char *ui_text_account_id;
+
 #ifdef ALLOW_LOG_EXPORT
 extern const char *ui_text_send_logs_prompt;
 #endif

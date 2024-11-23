@@ -553,6 +553,11 @@ const char *ui_text_inheritance_decryption_flow_confirmation_generic =
 const char *ui_text_inheritance_decryption_flow_success = "Decryption Success";
 const char *ui_text_inheritance_decryption_flow_failure = "Decryption Failed";
 
+// ICP
+
+const char *ui_text_principal_id = "Principal Id";
+const char *ui_text_account_id = "Account Id";
+
 #ifdef ALLOW_LOG_EXPORT
 const char *ui_text_send_logs_prompt = "Send logs to the cySync app?";
 #endif
