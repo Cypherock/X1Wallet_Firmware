@@ -60,17 +60,27 @@
  * INCLUDES
  *****************************************************************************/
 
+#include <stdint.h>
+#include <string.h>
+
+#include "base32.h"
 #include "bip32.h"
+#include "constant_texts.h"
 #include "curves.h"
+#include "ecdsa.h"
 #include "hasher.h"
 #include "icp_api.h"
 #include "icp_context.h"
 #include "icp_helpers.h"
 #include "icp_priv.h"
 #include "reconstruct_wallet_flow.h"
+#include "secp256k1.h"
+#include "sha3.h"
 #include "status_api.h"
+#include "stm32l486xx.h"
 #include "ui_core_confirm.h"
 #include "ui_screens.h"
+#include "utils.h"
 #include "wallet_list.h"
 
 /*****************************************************************************
@@ -354,6 +364,164 @@ static bool get_user_consent(const pb_size_t which_request,
  * STATIC FUNCTIONS
  *****************************************************************************/
 
+/**
+ * @brief Extracts the principal ID from a compressed public key.
+ *
+ * This function decompresses the provided compressed public key, encodes the
+ * public key in DER format, and then computes a SHA3-224 hash of the
+ * DER-encoded public key to generate the principal ID. The principal ID is
+ * stored in the provided buffer.
+ *
+ * @param[out] principal The buffer to store the resulting principal ID.
+ * @param[in] compressed_public_key The compressed public key from which the
+ * principal is derived.
+ *
+ * @note The caller must ensure that `principal` has sufficient space to store
+ * the principal ID.
+ *
+ * @return None
+ */
+void icp_get_principal_from_pub_key(uint8_t *principal,
+                                    const uint8_t *compressed_public_key) {
+  if (principal == NULL || compressed_public_key == NULL) {
+    // TODO: Error handling
+    return;
+  }
+
+  uint8_t uncompressed_public_key[64] = {0};
+  ecdsa_uncompress_pubkey(
+      secp256k1_info.params, compressed_public_key, uncompressed_public_key);
+
+  uint8_t der_encoded_pub_key[DER_ENCODED_PUB_KEY_MAX_SIZE] = {0};
+  get_der_encoded_pub_key(der_encoded_pub_key, uncompressed_public_key);
+
+  SHA3_CTX hash_ctx = {0};
+
+  memcpy(hash_ctx.message, der_encoded_pub_key, sizeof(der_encoded_pub_key));
+  sha3_224_Init(&hash_ctx);
+
+  sha3_Final(&hash_ctx, principal);
+
+  principal[ICP_PRINCIPAL_ID_LENGTH - 1] = ICP_SELF_AUTH_ID_TAG;
+}
+
+/**
+ * @brief Converts a principal ID into a human-readable account ID format.
+ *
+ * This function takes a principal ID, computes a SHA3-224 hash of the principal
+ * ID along with a predefined ICP account domain separator, and then generates a
+ * checksum. The result is a formatted account ID, which is a combination of the
+ * checksum and the hash of the principal ID.
+ *
+ * @param[in] principal The principal ID to convert.
+ * @param[out] account_id The buffer to store the resulting account ID in string
+ * format.
+ * @param[in] account_id_max_size The maximum size of the `account_id` buffer.
+ *
+ * @note The caller must ensure that `account_id` is large enough to hold the
+ * formatted account ID.
+ *
+ * @return None
+ */
+void get_account_id_to_display(const uint8_t *principal,
+                               char *account_id,
+                               size_t account_id_max_size) {
+  if (principal == NULL || account_id == NULL ||
+      account_id_max_size < (ICP_ACCOUNT_ID_LENGTH * 2 + 1)) {
+    // TODO: Error handling
+    return;
+  }
+
+  // b"\x0Aaccount-id"
+  const uint8_t ICP_ACCOUNT_DOMAIN_SEPARATOR[] = {
+      0x0a, 0x61, 0x63, 0x63, 0x6f, 0x75, 0x6e, 0x74, 0x2d, 0x69, 0x64};
+
+  SHA3_CTX hash_ctx = {0};
+  memcpy(hash_ctx.message,
+         ICP_ACCOUNT_DOMAIN_SEPARATOR,
+         sizeof(ICP_ACCOUNT_DOMAIN_SEPARATOR));
+  sha3_224_Init(&hash_ctx);
+  sha3_Update(&hash_ctx, principal, ICP_PRINCIPAL_ID_LENGTH);
+
+  // TODO: handle subaccounts in future?
+  uint8_t hash[28] = {0};
+  sha3_Final(&hash_ctx, hash);
+
+  uint32_t checksum = get_crc32(hash, sizeof(hash));
+
+  uint8_t account_id_bytes[ICP_ACCOUNT_ID_LENGTH] = {0};
+  memcpy(account_id_bytes, (uint8_t *)checksum, sizeof(checksum));
+  memcpy(account_id_bytes + sizeof(checksum), hash, sizeof(hash));
+
+  byte_array_to_hex_string(account_id_bytes,
+                           sizeof(account_id_bytes),
+                           account_id,
+                           account_id_max_size);
+}
+
+/**
+ * @brief Converts a principal ID into a human-readable principal ID format.
+ *
+ * This function computes a checksum for the given principal ID and generates a
+ * base32-encoded representation of the principal ID. The result is formatted
+ * with hyphens at regular intervals to generate a more readable version of the
+ * principal ID.
+ *
+ * @param[in] principal The principal ID to convert.
+ * @param[out] principal_id The buffer to store the resulting principal ID in
+ * string format.
+ * @param[in] principal_id_max_size The maximum size of the `principal_id`
+ * buffer.
+ *
+ * @note The caller must ensure that `principal_id` is large enough to hold the
+ * formatted principal ID.
+ *
+ * @return None
+ */
+void get_principal_id_to_display(const uint8_t *principal,
+                                 char *principal_id,
+                                 size_t principal_id_max_size) {
+  if (principal == NULL || principal_id == NULL ||
+      principal_id_max_size < (ICP_ACCOUNT_ID_LENGTH * 2 + 1)) {
+    // TODO: Error handling
+    return;
+  }
+
+  uint32_t checksum = get_crc32(principal, ICP_PRINCIPAL_ID_LENGTH);
+
+  uint8_t principal_id_bytes[ICP_PRINCIPAL_ID_LENGTH + 4] = {0};
+  memcpy(principal_id_bytes, (uint8_t *)checksum, sizeof(checksum));
+  memcpy(principal_id_bytes + sizeof(checksum),
+         principal,
+         ICP_PRINCIPAL_ID_LENGTH);
+
+  char principal_id_without_dashes[200] = {0};
+  size_t length = base32_encoded_length(sizeof(principal_id_bytes));
+  base32_encode(principal_id_bytes,
+                sizeof(principal_id_bytes),
+                principal_id_without_dashes,
+                sizeof(principal_id_without_dashes),
+                NULL);
+
+  // hyphenate output
+  size_t offset = 0;
+  size_t hyphens = 0;
+  const size_t limit = 5;
+  while (offset < length) {
+    memcpy(principal_id + offset,
+           principal_id_without_dashes + (hyphens * limit),
+           limit);
+    offset += limit;
+    if (offset < length) {
+      memcpy(principal_id + offset, "-", 1);
+      offset += 1;
+      hyphens += 1;
+    }
+  }
+
+  // Ensure Null character
+  principal_id[offset] = 0x00;
+}
 /*****************************************************************************
  * GLOBAL FUNCTIONS
  *****************************************************************************/
@@ -413,38 +581,25 @@ void icp_get_pub_keys(icp_query_t *query) {
     return;
   }
 
-  // In case the request is to `ICP_QUERY_GET_PUBLIC_KEY_TAG` type, then wait
-  // for user verification of the address
   if (ICP_QUERY_GET_USER_VERIFIED_PUBLIC_KEY_TAG == which_request) {
-    // address = base58.encode(prefixed_account_id || checksum)
-    // prefixed_account_id = 0x00 || ripemd160(sha256(public_key))
-    // checksum = first 4 bytes of sha256(sha256(prefixed_account_id))
+    uint8_t principal[ICP_PRINCIPAL_ID_LENGTH] = {0};
 
-    // see https://icpl.org/docs/concepts/accounts/addresses#address-encoding
+    icp_get_principal_from_pub_key(principal, pubkey_list[0]);
 
-    char address[ICP_ACCOUNT_ADDRESS_LENGTH] = "";
+    char account_id[200] = {0};
+    get_account_id_to_display(principal, account_id, sizeof(account_id));
 
-    uint8_t public_key_digest[32];
-    hasher_Raw(
-        HASHER_SHA2, pubkey_list[0], ICP_PUB_KEY_SIZE, public_key_digest);
-
-    uint8_t prefixed_account_id[ICP_PREFIXED_ACCOUNT_ID_LENGTH];
-    prefixed_account_id[0] = 0x00;
-    memcpy(prefixed_account_id + 1, public_key_digest, 20);
-
-    // icp uses different base58 dictionary, that's why a custom function
-    if (!base58_encode_check(prefixed_account_id,
-                             ICP_PREFIXED_ACCOUNT_ID_LENGTH,
-                             HASHER_SHA2D,
-                             address,
-                             ICP_ACCOUNT_ADDRESS_LENGTH + 1)) {
-      icp_send_error(ERROR_COMMON_ERROR_UNKNOWN_ERROR_TAG, 2);
+    if (!core_scroll_page(ui_text_account_id, account_id, icp_send_error)) {
       return;
     }
 
-    if (!core_scroll_page(ui_text_receive_on, address, icp_send_error)) {
+    char principal_id[200] = {0};
+    get_principal_id_to_display(principal, principal_id, sizeof(principal_id));
+
+    if (!core_scroll_page(ui_text_principal_id, principal_id, icp_send_error)) {
       return;
     }
+
     set_app_flow_status(ICP_GET_PUBLIC_KEYS_STATUS_VERIFY);
   }
 
