@@ -51,10 +51,10 @@ typedef struct btc_verify_input {
   parse_type parsetype;
   input_case input_parse;
   output_case output_parse;
-  bool isSegwit;
-  bool isSplit;
-  bool hasLocktime;
-  bool isLocktimeSplit;
+  bool is_segwit;
+  bool is_split;
+  bool has_locktime;
+  bool is_locktime_split;
   int32_t size_last_chunk;
   uint8_t value[8];
   uint8_t locktime[4];

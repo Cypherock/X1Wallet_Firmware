@@ -435,7 +435,7 @@ static bool fetch_valid_input(btc_query_t *query) {
 
         verify_input_data.size_last_chunk = total_size % CHUNK_SIZE;
         if (verify_input_data.size_last_chunk < 4) {
-          verify_input_data.isLocktimeSplit = true;
+          verify_input_data.is_locktime_split = true;
         }
       }
 

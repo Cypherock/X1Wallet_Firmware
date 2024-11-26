@@ -339,7 +339,7 @@ static void update_hash(btc_verify_input_t *verify_input_data,
   }
   switch (update) {
     case FIRST_CHUNK_HASH: {
-      if (verify_input_data->isSegwit) {
+      if (verify_input_data->is_segwit) {
         sha256_Update(&(verify_input_data->sha_256_ctx), raw_txn_chunk, 4);
         // skip marker and flag
         sha256_Update(
@@ -361,7 +361,7 @@ static void update_hash(btc_verify_input_t *verify_input_data,
 static void update_locktime(btc_verify_input_t *verify_input_data,
                             const uint8_t *raw_txn_chunk,
                             int chunk_index) {
-  if (verify_input_data->isLocktimeSplit) {
+  if (verify_input_data->is_locktime_split) {
     // last second chunk
     if (chunk_index + 2 == verify_input_data->chunk_total) {
       memcpy(
@@ -374,7 +374,7 @@ static void update_locktime(btc_verify_input_t *verify_input_data,
           verify_input_data->locktime + 4 - verify_input_data->size_last_chunk,
           raw_txn_chunk,
           verify_input_data->size_last_chunk);
-      verify_input_data->hasLocktime = true;
+      verify_input_data->has_locktime = true;
       return;
     } else {
       // wait for subsequent chunks
@@ -384,7 +384,7 @@ static void update_locktime(btc_verify_input_t *verify_input_data,
     memcpy(verify_input_data->locktime,
            raw_txn_chunk + verify_input_data->size_last_chunk - 4,
            4);
-    verify_input_data->hasLocktime = true;
+    verify_input_data->has_locktime = true;
   } else {
     // wait for subsequent chunks
     return;
@@ -425,16 +425,18 @@ int btc_verify_input(const uint8_t *raw_txn_chunk,
     // ignore network version (4-bytes), skip marker & flag (in segwit)
     offset += (raw_txn_chunk[4] == 0 ? 6 : 4);
     if (6 == offset) {
-      verify_input_data->isSegwit = true;
+      verify_input_data->is_segwit = true;
     }
 
-    // store the number of inputs in the raw_txn
-    verify_input_data->count = raw_txn_chunk[offset++];
     // TODO: Improve varint decode.
     // size of variable containing script size and ip-count/op-count
     // varies (1-9 Bytes) depending on its value.
     // refer:
     // https://en.bitcoin.it/wiki/Protocol_documentation#Variable_length_integer
+    verify_input_data->count =
+        raw_txn_chunk[offset++];    ///< store the number of inputs in the
+                                    ///< raw_txn
+
     verify_input_data->parsetype = INPUT;
     sha256_Init(&(verify_input_data->sha_256_ctx));
   } else {
@@ -447,7 +449,7 @@ int btc_verify_input(const uint8_t *raw_txn_chunk,
         input_case ip_case = verify_input_data->input_parse;
         switch (ip_case) {
           case PREVIOUS_TX_HASH_PLUS_OP_INDEX_CASE: {
-            if (offset + 36 > CHUNK_SIZE) {
+            if (offset + 36 >= CHUNK_SIZE) {
               verify_input_data->prev_offset = (offset + 36) - CHUNK_SIZE;
               update_hash(
                   verify_input_data, raw_txn_chunk, chunk_index, CHUNK_SIZE);
@@ -460,7 +462,7 @@ int btc_verify_input(const uint8_t *raw_txn_chunk,
 
           case SCRIPT_LENGTH_CASE: {
             int64_t script_length = varint_decode(raw_txn_chunk, &offset);
-            if (offset + script_length + 1 + 4 > CHUNK_SIZE) {
+            if (offset + script_length + 1 + 4 >= CHUNK_SIZE) {
               verify_input_data->prev_offset =
                   (offset + script_length + 1 + 4) - CHUNK_SIZE;
               update_hash(
@@ -485,9 +487,11 @@ int btc_verify_input(const uint8_t *raw_txn_chunk,
     }
 
     case OP_COUNT: {
-      if (offset + 1 > CHUNK_SIZE) {
+      if (offset + 1 >= CHUNK_SIZE) {
         // reset prev offset
-        verify_input_data->prev_offset = -1;
+        verify_input_data->prev_offset =
+            offset - CHUNK_SIZE;    ///< Did not add +1 as returning back to
+                                    ///< this stage to read op count
         update_hash(verify_input_data, raw_txn_chunk, chunk_index, CHUNK_SIZE);
         return 4;
       } else {
@@ -503,7 +507,7 @@ int btc_verify_input(const uint8_t *raw_txn_chunk,
         switch (op_case) {
           case VALUE_CASE: {
             if (verify_input_data->output_index == input->prev_output_index) {
-              if (offset + 8 > CHUNK_SIZE) {
+              if (offset + 8 >= CHUNK_SIZE) {
                 verify_input_data->prev_offset = (offset + 8) - CHUNK_SIZE;
                 memcpy(verify_input_data->value,
                        raw_txn_chunk + offset,
@@ -511,13 +515,13 @@ int btc_verify_input(const uint8_t *raw_txn_chunk,
                 update_hash(
                     verify_input_data, raw_txn_chunk, chunk_index, CHUNK_SIZE);
                 verify_input_data->output_parse = VALUE_SPLIT_CASE;
-                verify_input_data->isSplit = 1;
+                verify_input_data->is_split = 1;
                 return 4;
               } else {
                 memcpy(verify_input_data->value, raw_txn_chunk + offset, 8);
               }
             }
-            if (offset + 8 > CHUNK_SIZE) {
+            if (offset + 8 >= CHUNK_SIZE) {
               verify_input_data->prev_offset = (offset + 8) - CHUNK_SIZE;
               update_hash(
                   verify_input_data, raw_txn_chunk, chunk_index, CHUNK_SIZE);
@@ -529,17 +533,17 @@ int btc_verify_input(const uint8_t *raw_txn_chunk,
           }
 
           case VALUE_SPLIT_CASE: {
-            if (verify_input_data->isSplit) {
+            if (verify_input_data->is_split) {
               memcpy(verify_input_data->value + (8 - offset),
                      raw_txn_chunk,
                      offset);
               verify_input_data->output_parse = SCRIPT_PUBKEY_CASE;
-              verify_input_data->isSplit = 0;
+              verify_input_data->is_split = 0;
             }
           }
 
           case SCRIPT_PUBKEY_CASE: {
-            if (offset + raw_txn_chunk[offset] + 1 > CHUNK_SIZE) {
+            if (offset + raw_txn_chunk[offset] + 1 >= CHUNK_SIZE) {
               verify_input_data->prev_offset =
                   (offset + raw_txn_chunk[offset] + 1) - CHUNK_SIZE;
               update_hash(
@@ -565,7 +569,7 @@ int btc_verify_input(const uint8_t *raw_txn_chunk,
 
     case LOCK_TIME: {
       update_locktime(verify_input_data, raw_txn_chunk, chunk_index);
-      if (false == verify_input_data->hasLocktime) {
+      if (false == verify_input_data->has_locktime) {
         return 4;
       }
       sha256_Update(
