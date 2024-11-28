@@ -478,7 +478,8 @@ static bool fetch_valid_input(btc_query_t *query) {
       return false;
     }
 
-    if ((SCRIPT_TYPE_P2PKH != type && SCRIPT_TYPE_P2WPKH != type) ||
+    if ((SCRIPT_TYPE_P2PKH != type && SCRIPT_TYPE_P2WPKH != type &&
+         SCRIPT_TYPE_P2SH != type) ||
         0 != status) {
       // input validation failed, terminate immediately
       btc_send_error(ERROR_COMMON_ERROR_CORRUPT_DATA_TAG,
@@ -648,11 +649,27 @@ static bool sign_input(scrip_sig_t *signatures) {
   status = true;
   for (int idx = 0; idx < btc_txn_context->metadata.input_count; idx++) {
     // generate the input digest and respective private key
-    status = btc_digest_input(btc_txn_context, idx, buffer);
     memcpy(&t_node, &node, sizeof(HDNode));
     hdnode_private_ckd(&t_node, btc_txn_context->inputs[idx].change_index);
     hdnode_private_ckd(&t_node, btc_txn_context->inputs[idx].address_index);
     hdnode_fill_public_key(&t_node);
+
+    // detect input type
+    btc_sign_txn_input_script_pub_key_t *script =
+        &btc_txn_context->inputs[idx].script_pub_key;
+    btc_script_type_e type = btc_get_script_type(script->bytes, script->size);
+    if (SCRIPT_TYPE_P2SH == type) {
+      // replace BIP16 scriptpubkey with redeemscript(P2WPKH)
+      uint8_t buf[22] = {0};
+      buf[0] = 0;     // version byte
+      buf[1] = 20;    // push 20 bytes
+      ecdsa_get_pubkeyhash(
+          t_node.public_key, t_node.curve->hasher_pubkey, buf + 2);
+      memcpy(btc_txn_context->inputs[idx].script_pub_key.bytes, buf, 22);
+      btc_txn_context->inputs[idx].script_pub_key.size = 22;
+    }
+
+    status = btc_digest_input(btc_txn_context, idx, buffer);
     ecdsa_sign_digest(
         curve, t_node.private_key, buffer, signatures[idx].bytes, NULL, NULL);
     signatures[idx].size = btc_sig_to_script_sig(

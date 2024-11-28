@@ -239,13 +239,25 @@ bool btc_check_script_address(const uint8_t *script,
 
   uint8_t digest[HASHER_DIGEST_LENGTH] = {0};
   btc_script_type_e type = btc_get_script_type(script, script_len);
-  if (SCRIPT_TYPE_P2PKH != type && SCRIPT_TYPE_P2WPKH != type) {
-    // allow only p2pkh and p2wpkh for change output
+  if (SCRIPT_TYPE_P2PKH != type && SCRIPT_TYPE_P2WPKH != type &&
+      SCRIPT_TYPE_P2SH != type) {
+    // allow only p2pkh and p2wpkh and p2sh-p2wpkh for change output
     return false;
   }
   uint8_t offset = (SCRIPT_TYPE_P2PKH == type) ? 3 : 2;
 
   hasher_Raw(HASHER_SHA2_RIPEMD, public_key, BTC_SHORT_PUB_KEY_SIZE, digest);
+
+  if (SCRIPT_TYPE_P2SH == type) {
+    // Compute redeemscript(P2WPKH). scriptpub of nested-segwit is hash160 of
+    // redeemscript
+    uint8_t buf[22] = {0};
+    buf[0] = 0;     // version byte
+    buf[1] = 20;    // push 20 bytes
+    memcpy(buf + 2, digest, 20);
+    hasher_Raw(HASHER_SHA2_RIPEMD, buf, 22, digest);
+  }
+
   return (memcmp(digest, &script[offset], RIPEMD160_DIGEST_LENGTH) == 0);
 }
 

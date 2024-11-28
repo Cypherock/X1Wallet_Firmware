@@ -674,7 +674,6 @@ bool btc_digest_input(const btc_txn_context_t *context,
   btc_sign_txn_input_script_pub_key_t *script =
       &context->inputs[index].script_pub_key;
   btc_script_type_e type = btc_get_script_type(script->bytes, script->size);
-
   if (SCRIPT_TYPE_P2WPKH == type) {
     // segwit digest calculation; could fail if segwit_cache not filled
     status = calculate_p2wpkh_digest(context, index, digest);
