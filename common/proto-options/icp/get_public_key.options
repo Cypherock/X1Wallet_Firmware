@@ -1,0 +1,5 @@
+# Options for file common/cypherock-common/proto/icp/get_public_key.proto
+icp.GetPublicKeysDerivationPath.path type:FT_STATIC max_count:5 fixed_length:true
+icp.GetPublicKeysIntiateRequest.wallet_id type:FT_STATIC max_size:32 fixed_length:true
+icp.GetPublicKeysIntiateRequest.derivation_paths type:FT_STATIC max_count:100 fixed_length:true
+icp.GetPublicKeysResultResponse.public_keys type:FT_STATIC max_size:33 max_count:10 fixed_length:true
