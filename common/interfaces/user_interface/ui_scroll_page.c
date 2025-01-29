@@ -321,8 +321,6 @@ static void page_cancel_handler(lv_obj_t *pCancelLvglObj,
       lv_key_t keyPressed = lv_indev_get_key(ui_get_indev());
       if (LV_KEY_RIGHT == keyPressed) {
         lv_group_focus_obj(gp_scrollabe_page_lvgl->p_ui_accept_btn_lvgl);
-      } else if (LV_KEY_UP == keyPressed) {
-        lv_group_focus_obj(gp_scrollabe_page_lvgl->p_ui_body_lvgl);
       } else if (LV_KEY_LEFT == keyPressed) {
         /**
          * If the cancel icon is pressed and the user moves joystick to left, we
@@ -365,11 +363,8 @@ static void page_accept_handler(lv_obj_t *pAcceptLvglObj,
 
   switch (lvglEvent) {
     case LV_EVENT_KEY: {
-      lv_key_t keyPressed = lv_indev_get_key(ui_get_indev());
-      if (LV_KEY_LEFT == keyPressed) {
+      if (LV_KEY_LEFT == lv_indev_get_key(ui_get_indev())) {
         lv_group_focus_obj(gp_scrollabe_page_lvgl->p_ui_cancel_btn_lvgl);
-      } else if (LV_KEY_UP == keyPressed) {
-        lv_group_focus_obj(gp_scrollabe_page_lvgl->p_ui_body_lvgl);
       }
       break;
     }
@@ -453,11 +448,6 @@ static void page_arrow_handler(lv_obj_t *pLvglArrowObject,
                        0,
                        0);
           page_update_icons();
-        }
-      } else if (LV_KEY_DOWN == keyPressed) {
-        /* Only focus on accept button if the button is visible */
-        if (false == gp_scrollabe_page_data->bool_accept_cancel_hidden) {
-          lv_group_focus_obj(gp_scrollabe_page_lvgl->p_ui_accept_btn_lvgl);
         }
       }
 
