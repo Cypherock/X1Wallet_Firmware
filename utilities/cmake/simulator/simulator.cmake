@@ -24,14 +24,8 @@ add_executable(${EXECUTABLE} ${SOURCES} ${CMAKE_CURRENT_BINARY_DIR}/version.c ${
 
 if ("${FIRMWARE_TYPE}" STREQUAL "Main")
     add_compile_definitions(X1WALLET_INITIAL=0 X1WALLET_MAIN=1)
-    target_include_directories(${PROJECT_NAME} PRIVATE
-            main/config/
-            )
 elseif("${FIRMWARE_TYPE}" STREQUAL "Initial")
     add_compile_definitions(X1WALLET_INITIAL=1 X1WALLET_MAIN=0)
-    target_include_directories(${PROJECT_NAME} PRIVATE
-            initial/config/
-            )
 else()
     message(FATAL_ERROR "Firmware type not specified. Specify using -DFIRMWARE_TYPE=<Type> Type can be Main or Initial")
 endif()
@@ -120,7 +114,6 @@ target_include_directories(${PROJECT_NAME} PRIVATE
 
         common
         common/lvgl
-        common/lvgl/porting
         common/lvgl/src
         common/lvgl/src/lv_core
         common/lvgl/src/lv_draw
