@@ -61,6 +61,7 @@
  *****************************************************************************/
 
 #include <stdint.h>
+#include <stdio.h>
 #include <string.h>
 
 #include "base32.h"
@@ -68,16 +69,13 @@
 #include "constant_texts.h"
 #include "curves.h"
 #include "ecdsa.h"
-#include "hasher.h"
 #include "icp_api.h"
 #include "icp_context.h"
 #include "icp_helpers.h"
 #include "icp_priv.h"
 #include "reconstruct_wallet_flow.h"
 #include "secp256k1.h"
-#include "sha3.h"
 #include "status_api.h"
-#include "stm32l486xx.h"
 #include "ui_core_confirm.h"
 #include "ui_screens.h"
 #include "utils.h"
@@ -388,21 +386,18 @@ void icp_get_principal_from_pub_key(uint8_t *principal,
     return;
   }
 
-  uint8_t uncompressed_public_key[64] = {0};
+  uint8_t secp256k1_uncompressed_public_key[SECP256K1_UNCOMPRESSED_PK_LEN] = {
+      0};
   ecdsa_uncompress_pubkey(
-      secp256k1_info.params, compressed_public_key, uncompressed_public_key);
+      &secp256k1, compressed_public_key, secp256k1_uncompressed_public_key);
 
-  uint8_t der_encoded_pub_key[DER_ENCODED_PUB_KEY_MAX_SIZE] = {0};
-  get_der_encoded_pub_key(der_encoded_pub_key, uncompressed_public_key);
+  uint8_t secp256k1_der_encoded_pub_key[SECP256K1_DER_PK_LEN] = {0};
+  get_secp256k1_der_encoded_pub_key(secp256k1_uncompressed_public_key,
+                                    secp256k1_der_encoded_pub_key);
 
-  SHA3_CTX hash_ctx = {0};
+  sha224_Raw(secp256k1_der_encoded_pub_key, SECP256K1_DER_PK_LEN, principal);
 
-  memcpy(hash_ctx.message, der_encoded_pub_key, sizeof(der_encoded_pub_key));
-  sha3_224_Init(&hash_ctx);
-
-  sha3_Final(&hash_ctx, principal);
-
-  principal[ICP_PRINCIPAL_ID_LENGTH - 1] = ICP_SELF_AUTH_ID_TAG;
+  principal[ICP_PRINCIPAL_LENGTH - 1] = ICP_SELF_AUTH_ID_TAG;
 }
 
 /**
@@ -436,27 +431,41 @@ void get_account_id_to_display(const uint8_t *principal,
   const uint8_t ICP_ACCOUNT_DOMAIN_SEPARATOR[] = {
       0x0a, 0x61, 0x63, 0x63, 0x6f, 0x75, 0x6e, 0x74, 0x2d, 0x69, 0x64};
 
-  SHA3_CTX hash_ctx = {0};
-  memcpy(hash_ctx.message,
+  // TODO: handle subaccounts in future?
+  // For now only default subaccount
+  uint8_t zero_subaccount[ICP_SUBACCOUNT_ID_LEN] = {0};
+
+  size_t buffer_len = sizeof(ICP_ACCOUNT_DOMAIN_SEPARATOR) +
+                      ICP_PRINCIPAL_LENGTH + ICP_SUBACCOUNT_ID_LEN;
+  uint8_t buffer[buffer_len];
+  memzero(buffer, buffer_len);
+  memcpy(buffer,
          ICP_ACCOUNT_DOMAIN_SEPARATOR,
          sizeof(ICP_ACCOUNT_DOMAIN_SEPARATOR));
-  sha3_224_Init(&hash_ctx);
-  sha3_Update(&hash_ctx, principal, ICP_PRINCIPAL_ID_LENGTH);
+  memcpy(buffer + sizeof(ICP_ACCOUNT_DOMAIN_SEPARATOR),
+         principal,
+         ICP_PRINCIPAL_LENGTH);
+  memcpy(buffer + sizeof(ICP_ACCOUNT_DOMAIN_SEPARATOR) + ICP_PRINCIPAL_LENGTH,
+         zero_subaccount,
+         ICP_SUBACCOUNT_ID_LEN);
 
-  // TODO: handle subaccounts in future?
-  uint8_t hash[28] = {0};
-  sha3_Final(&hash_ctx, hash);
+  uint8_t hash[SHA224_DIGEST_LENGTH] = {0};
+  sha224_Raw(buffer, buffer_len, hash);
 
-  uint32_t checksum = get_crc32(hash, sizeof(hash));
+  uint32_t checksum = compute_crc32(hash, sizeof(hash));
 
   uint8_t account_id_bytes[ICP_ACCOUNT_ID_LENGTH] = {0};
-  memcpy(account_id_bytes, (uint8_t *)checksum, sizeof(checksum));
-  memcpy(account_id_bytes + sizeof(checksum), hash, sizeof(hash));
 
-  byte_array_to_hex_string(account_id_bytes,
-                           sizeof(account_id_bytes),
-                           account_id,
-                           account_id_max_size);
+  // Store checksum in Big-Endian order
+  account_id_bytes[0] = (checksum >> 24) & 0xFF;
+  account_id_bytes[1] = (checksum >> 16) & 0xFF;
+  account_id_bytes[2] = (checksum >> 8) & 0xFF;
+  account_id_bytes[3] = (checksum) & 0xFF;
+
+  memcpy(account_id_bytes + 4, hash, sizeof(hash));
+
+  byte_array_to_hex_string(
+      account_id_bytes, ICP_ACCOUNT_ID_LENGTH, account_id, account_id_max_size);
 }
 
 /**
@@ -487,13 +496,17 @@ void get_principal_id_to_display(const uint8_t *principal,
     return;
   }
 
-  uint32_t checksum = get_crc32(principal, ICP_PRINCIPAL_ID_LENGTH);
+  uint32_t checksum = compute_crc32(principal, ICP_PRINCIPAL_LENGTH);
 
-  uint8_t principal_id_bytes[ICP_PRINCIPAL_ID_LENGTH + 4] = {0};
-  memcpy(principal_id_bytes, (uint8_t *)checksum, sizeof(checksum));
-  memcpy(principal_id_bytes + sizeof(checksum),
-         principal,
-         ICP_PRINCIPAL_ID_LENGTH);
+  uint8_t principal_id_bytes[ICP_PRINCIPAL_LENGTH + 4] = {0};
+
+  // Store checksum in Big-Endian order
+  principal_id_bytes[0] = (checksum >> 24) & 0xFF;
+  principal_id_bytes[1] = (checksum >> 16) & 0xFF;
+  principal_id_bytes[2] = (checksum >> 8) & 0xFF;
+  principal_id_bytes[3] = (checksum) & 0xFF;
+
+  memcpy(principal_id_bytes + 4, principal, ICP_PRINCIPAL_LENGTH);
 
   char principal_id_without_dashes[200] = {0};
   size_t length = base32_encoded_length(sizeof(principal_id_bytes));
@@ -501,26 +514,28 @@ void get_principal_id_to_display(const uint8_t *principal,
                 sizeof(principal_id_bytes),
                 principal_id_without_dashes,
                 sizeof(principal_id_without_dashes),
-                NULL);
+                BASE32_ALPHABET_RFC4648_SMALLCASE);
 
   // hyphenate output
   size_t offset = 0;
   size_t hyphens = 0;
   const size_t limit = 5;
   while (offset < length) {
-    memcpy(principal_id + offset,
-           principal_id_without_dashes + (hyphens * limit),
-           limit);
-    offset += limit;
+    const size_t curr_limit =
+        limit <= (length - offset) ? limit : length - offset;
+    memcpy(principal_id + offset + hyphens,
+           principal_id_without_dashes + offset,
+           curr_limit);
+    offset += curr_limit;
+
     if (offset < length) {
-      memcpy(principal_id + offset, "-", 1);
-      offset += 1;
+      memcpy(principal_id + offset + hyphens, "-", 1);
       hyphens += 1;
     }
   }
 
   // Ensure Null character
-  principal_id[offset] = 0x00;
+  principal_id[offset + hyphens] = 0x00;
 }
 /*****************************************************************************
  * GLOBAL FUNCTIONS
@@ -582,7 +597,7 @@ void icp_get_pub_keys(icp_query_t *query) {
   }
 
   if (ICP_QUERY_GET_USER_VERIFIED_PUBLIC_KEY_TAG == which_request) {
-    uint8_t principal[ICP_PRINCIPAL_ID_LENGTH] = {0};
+    uint8_t principal[ICP_PRINCIPAL_LENGTH] = {0};
 
     icp_get_principal_from_pub_key(principal, pubkey_list[0]);
 

@@ -21,11 +21,13 @@
 #define ICP_NAME "ICP"
 #define ICP_LUNIT "ICP"
 #define ICP_PUB_KEY_SIZE 33
-#define ICP_PRINCIPAL_ID_LENGTH 29
+#define ICP_PRINCIPAL_LENGTH 29
 #define ICP_ACCOUNT_ID_LENGTH 32
 
 #define ICP_SELF_AUTH_ID_TAG 0x02
-#define DER_ENCODED_PUB_KEY_MAX_SIZE 200
+#define SECP256K1_UNCOMPRESSED_PK_LEN 65
+
+#define ICP_SUBACCOUNT_ID_LEN 32
 
 /*****************************************************************************
  * TYPEDEFS

@@ -18,6 +18,7 @@
 #include <stdint.h>
 
 #include "coin_utils.h"
+#include "icp_context.h"
 
 /*****************************************************************************
  * MACROS AND DEFINES
@@ -30,12 +31,18 @@
 #define ICP_ACCOUNT_INDEX 0x80000000         // 0'
 #define ICP_CHANGE_INDEX 0x00000000          // 0
 
-/*****************************************************************************
- * TYPEDEFS
- *****************************************************************************/
-
 #define ICP_PREFIXED_ACCOUNT_ID_LENGTH 21
 #define ICP_ACCOUNT_ADDRESS_LENGTH 34
+#define SECP256K1_DER_PREFIX_LEN                                               \
+  23    // Secp256k1 OID (Object Identifier) prefix len
+#define SECP256K1_DER_PK_LEN                                                   \
+  SECP256K1_DER_PREFIX_LEN + SECP256K1_UNCOMPRESSED_PK_LEN
+
+#define SHA224_DIGEST_LENGTH 28
+
+/*****************************************************************************
+ * TYPEDEFS
+ *****************************************************************************/\
 /*****************************************************************************
  * EXPORTED VARIABLES
  *****************************************************************************/
@@ -62,46 +69,50 @@ bool icp_derivation_path_guard(const uint32_t *path, uint8_t levels);
 
 /**
  * @brief Derives the DER-encoded public key from the given uncompressed public
- * key.
+ * key for Secp256k1.
  *
  * This function encodes the provided uncompressed public key in DER format and
  * stores the result in the `result` buffer.
  *
- * @param[out] result The buffer to store the DER-encoded public key.
  * @param[in] public_key The uncompressed public key to encode in DER format.
+ * @param[out] result The buffer to store the DER-encoded public key.
  *
  * @note The caller must ensure that `result` has sufficient space to store the
  * DER-encoded public key.
  *
  * @return None
  */
-void get_der_encoded_pub_key(uint8_t *result, const uint8_t *public_key);
-
-/**
- * @brief Updates the CRC32 checksum with a new byte of data.
- *
- * This function takes the current CRC32 value and updates it with the provided
- * byte. The CRC32 algorithm is typically used for error-checking or generating
- * a checksum for a stream of data.
- *
- * @param[in] crc_in The current CRC32 checksum value.
- * @param[in] byte The byte to include in the CRC32 update.
- *
- * @return The updated CRC32 checksum value.
- */
-uint32_t update_crc32(uint32_t crc_in, uint8_t byte);
+void get_secp256k1_der_encoded_pub_key(const uint8_t *public_key,
+                                       uint8_t *result);
 
 /**
  * @brief Computes the CRC32 checksum for a given input buffer.
  *
- * This function computes the CRC32 checksum of the provided input data. The
- * checksum is a 32-bit value commonly used for data integrity checks.
+ * This function computes the CRC32 checksum of the provided input data using a
+ * lookup table. The checksum is a 32-bit value commonly used for data integrity
+ * checks.
  *
- * @param[in] input The input data for which the CRC32 checksum is computed.
- * @param[in] input_size The size of the input data in bytes.
+ * @param[in] data The input data for which the CRC32 checksum is computed.
+ * @param[in] length The length of the input data in bytes.
  *
  * @return The CRC32 checksum of the input data.
  */
-uint32_t get_crc32(const uint8_t *input, size_t input_size);
+uint32_t compute_crc32(const uint8_t *data, size_t length);
+
+/**
+ * @brief Custom SHA-224 function using SHA-256 core.
+ *
+ * This function hashes the data using SHA-224 algorithm.
+ *
+ * @param[in] data The input data to hash.
+ * @param[in] len The length of the input data.
+ * @param[out] digest The buffer to store the hash digest.
+ *
+ * @note The caller must ensure that `digest` has sufficient space to store the
+ * hash digest
+ *
+ * @return None.
+ */
+void sha224_Raw(const uint8_t *data, size_t len, uint8_t *digest);
 
 #endif    // ICP_HELPERS_H

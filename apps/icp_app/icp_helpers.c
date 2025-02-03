@@ -59,10 +59,12 @@
 /*****************************************************************************
  * INCLUDES
  *****************************************************************************/
-
 #include "icp_helpers.h"
 
+#include <stddef.h>
 #include <stdint.h>
+
+#include "sha2.h"
 
 /*****************************************************************************
  * EXTERN VARIABLES
@@ -87,6 +89,28 @@
 /*****************************************************************************
  * GLOBAL VARIABLES
  *****************************************************************************/
+#define CRC32_POLYNOMIAL                                                       \
+  0xEDB88320                     // Reversed polynomial used in standard CRC32
+#define CRC32_INIT 0xFFFFFFFF    // Initial value
+#define CRC32_FINAL_XOR 0xFFFFFFFF    // Final XOR value
+
+// Secp256k1 OID (Object Identifier) Prefix
+uint8_t const SECP256K1_DER_PREFIX[] = {
+    0x30, 0x56, 0x30, 0x10, 0x06, 0x07, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02,
+    0x01, 0x06, 0x05, 0x2b, 0x81, 0x04, 0x00, 0x0a, 0x03, 0x42, 0x00};
+
+// Precomputed CRC-32 table
+uint32_t crc32_table[256];
+
+// SHA-224 Initial Hash Values (IV) from FIPS 180-4
+static const uint32_t sha224_initial_hash[8] = {0xc1059ed8,
+                                                0x367cd507,
+                                                0x3070dd17,
+                                                0xf70e5939,
+                                                0xffc00b31,
+                                                0x68581511,
+                                                0x64f98fa7,
+                                                0xbefa4fa4};
 
 /*****************************************************************************
  * STATIC FUNCTIONS
@@ -113,34 +137,52 @@ bool icp_derivation_path_guard(const uint32_t *path, uint8_t levels) {
   return status;
 }
 
-uint32_t update_crc32(uint32_t crc_in, uint8_t byte) {
-  uint32_t crc = crc_in;
-  uint32_t in =
-      byte | 0x100;    // Initialize the input byte for the CRC calculation
-
-  // Process each bit of the byte
-  do {
-    crc <<= 1;         // Shift the CRC register to the left
-    in <<= 1;          // Shift the input byte to the left
-    if (in & 0x100)    // Check if the 9th bit of the input byte is 1
-      crc |= 1;        // If so, set the least significant bit of CRC to 1
-
-    // If the CRC exceeds 32 bits, perform a modulo operation with the
-    // polynomial 0x04C11DB7
-    if (crc & 0x100000000) {
-      crc ^= 0x04C11DB7;    // The CRC-32 polynomial is 0x04C11DB7
-    }
-  } while (
-      in &
-      0x10000);    // Continue until all bits in the input byte are processed
-
-  return crc;
+void get_secp256k1_der_encoded_pub_key(const uint8_t *public_key,
+                                       uint8_t *result) {
+  memzero(result, SECP256K1_DER_PK_LEN);
+  memcpy(result, SECP256K1_DER_PREFIX, SECP256K1_DER_PREFIX_LEN);
+  memcpy(result + SECP256K1_DER_PREFIX_LEN,
+         public_key,
+         SECP256K1_UNCOMPRESSED_PK_LEN);
 }
 
-uint32_t get_crc32(const uint8_t *input, size_t input_size) {
-  uint32_t crc = 0;
-  for (size_t index = 0; index < input_size; index++) {
-    crc = update_crc32(crc, input[index]);
+// Function to initialize the CRC-32 lookup table
+void crc32_init() {
+  for (uint32_t i = 0; i < 256; i++) {
+    uint32_t crc = i;
+    for (uint32_t j = 0; j < 8; j++) {
+      if (crc & 1)
+        crc = (crc >> 1) ^ CRC32_POLYNOMIAL;
+      else
+        crc >>= 1;
+    }
+    crc32_table[i] = crc;
   }
-  return crc;
+}
+
+uint32_t compute_crc32(const uint8_t *data, size_t length) {
+  // Initialize CRC32 table
+  crc32_init();
+
+  uint32_t crc = CRC32_INIT;
+  for (size_t i = 0; i < length; i++) {
+    uint8_t index = (crc ^ data[i]) & 0xFF;
+    crc = (crc >> 8) ^ crc32_table[index];
+  }
+  return crc ^ CRC32_FINAL_XOR;
+}
+
+// Custom SHA-224 function using SHA-256 core
+void sha224_Raw(const uint8_t *data, size_t len, uint8_t *digest) {
+  SHA256_CTX ctx;
+  sha256_Init(&ctx);
+
+  // Override initial hash values with SHA-224 IV
+  memcpy(ctx.state, sha224_initial_hash, sizeof(sha224_initial_hash));
+
+  sha256_Update(&ctx, data, len);
+  sha256_Final(&ctx, digest);
+
+  // Truncate to 224 bits (first 28 bytes)
+  memzero(&digest[SHA224_DIGEST_LENGTH], 32 - SHA224_DIGEST_LENGTH);
 }
