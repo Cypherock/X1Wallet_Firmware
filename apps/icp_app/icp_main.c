@@ -98,7 +98,7 @@ void icp_main(usb_event_t usb_evt, const void *icp_app_config);
  * STATIC VARIABLES
  *****************************************************************************/
 
-static const cy_app_desc_t icp_app_desc = {.id = 20,
+static const cy_app_desc_t icp_app_desc = {.id = 22,
                                            .version =
                                                {
                                                    .major = 1,

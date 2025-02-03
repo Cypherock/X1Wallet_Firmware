@@ -85,6 +85,7 @@
 #include "solana_main.h"
 #include "tron_main.h"
 #include "xrp_main.h"
+#include "icp_main.h"
 
 /*****************************************************************************
  * EXTERN VARIABLES
@@ -183,4 +184,5 @@ void core_init_app_registry() {
   registry_add_app(get_tron_app_desc());
   registry_add_app(get_inheritance_app_desc());
   registry_add_app(get_xrp_app_desc());
+  registry_add_app(get_icp_app_desc());
 }
