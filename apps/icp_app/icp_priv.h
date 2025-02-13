@@ -32,7 +32,7 @@ typedef struct {
   uint8_t *transaction;
 
   // decoded raw txn
-  icp_unsigned_txn *raw_txn;
+  icp_transfer_t *raw_icp_transfer_txn;
 
 } icp_txn_context_t;
 

@@ -38,74 +38,54 @@ typedef struct {
 } icp_config_t;
 
 typedef enum {
-  INT16 = 1,
-  INT32 = 2,
-  HASH256 = 5,
-  AMOUNT = 6,
-  BLOB = 7,
-  ACCOUNT = 8,
-  VECTOR256 = 19
-} TYPECODE;
+  Null = -1,
+  Bool = -2,
+  Nat = -3,
+  Int = -4,
 
-typedef enum { TransactionType = 2 } INT16FIELDCODE;
+  Nat8 = -5,
+  Nat16 = -6,
+  Nat32 = -7,
+  Nat64 = -8,
 
-typedef enum {
-  Flags = 2,
-  Sequence = 4,
-  DestinationTag = 14,
-  OfferSequence = 25,
-  LastLedgerSequence = 27,
-  CancelAfter = 36,
-  FinishAfter = 37
-} INT132FIELDCODE;
+  Int8 = -9,
+  Int16 = -10,
+  Int32 = -11,
+  Int64 = -12,
 
-typedef enum {
-  NFTokenId = 10,
-} HASH256FIELDCODE;
-
-typedef enum {
-  Amount = 1,
-  LimitAmount = 3,
-  Fee = 8,
-} AMOUNTFIELDCODE;
+  Float32 = -13,
+  Float64 = -14,
+  Text = -15,
+  Reserved = -16,
+  Empty = -17,
+  Opt = -18,
+  Vector = -19,
+  Record = -20,
+  Variant = -21,
+  Func = -22,
+  Service = -23,
+  Principal = -24,
+} IDLTypes_e;
 
 typedef enum {
-  SigningPubKey = 3,
-  TxnSignature = 4,
-  Fulfillment = 16,
-  Condition = 17
-} BLOBFIELDCODE;
-
-typedef enum { Account = 1, Owner = 2, Destination = 3 } ACCOUNTFIELDCODE;
-
-typedef enum { NFTokenOffers = 4 } VECTOR256FILEDCODE;
-
-typedef enum {
-  no_type = -1,
-  payment = 0,
-  EscrowCreate = 1,
-  EscrowFinish = 2,
-  EscrowCancel = 4,
-  TrustSet = 20,
-  NFTokenBurn = 26,
-  NFTokenCreateOffer = 27,
-  NFTokenCancelOffer = 28,
-  NFTokenAcceptOffer = 29
-} TRANSACTIONTYPE;
+  transfer_hash_to = 25979,
+  transfer_hash_fee = 5094982,
+  transfer_hash_memo = 1213809850,
+  transfer_hash_from_subaccount = 1835347746,    // optional
+  transfer_hash_timestamp = 3258775938,          // optional
+  transfer_hash_amount = 3573748184,
+} transfer_hash_fields;
 
 typedef struct {
-  uint16_t TransactionType;
-  uint32_t Flags;
-  uint32_t Sequence;
-  bool hasDestinationTag;
-  uint32_t DestinationTag;    // optional
-  uint32_t LastLedgerSequence;
-  uint64_t Amount;
-  uint64_t Fee;
-  uint8_t SigningPubKey[33];
-  uint8_t Account[20];
-  uint8_t Destination[20];
-} icp_unsigned_txn;
+  uint64_t e8s;
+} token_t;
+
+typedef struct {
+  uint8_t to[ICP_ACCOUNT_ID_LENGTH];
+  token_t *amount;
+  token_t *fee;
+  uint64_t memo;
+} icp_transfer_t;
 
 /*****************************************************************************
  * EXPORTED VARIABLES
