@@ -21,7 +21,7 @@
 /*****************************************************************************
  * MACROS AND DEFINES
  *****************************************************************************/
-#define MAGIC_NUMBER "DILD"
+#define MAGIC_NUMBER "DIDL"
 
 /*****************************************************************************
  * TYPEDEFS
@@ -38,9 +38,14 @@ typedef struct {
   int64_t child_type;
 
   // if it's a record type
-  int num_fields;
+  uint64_t num_fields;
   RecordField *fields;
 } IDLComplexType;
+
+typedef struct {
+  uint8_t key_hash[32];
+  uint8_t value_hash[32];
+} HashPair;
 
 /*****************************************************************************
  * EXPORTED VARIABLES
@@ -56,7 +61,7 @@ typedef struct {
  * @param offset Offset from the start of the buffer.
  * @return Decoded integer value.
  */
-uint64_t lebDecode(const uint8_t *buffer, size_t *offset);
+uint64_t leb_decode(const uint8_t *buffer, size_t *offset);
 
 /**
  * Decode a Signed LEB128 encoded buffer into an integer.
@@ -65,7 +70,7 @@ uint64_t lebDecode(const uint8_t *buffer, size_t *offset);
  * @param offset Offset from the start of the buffer.
  * @return Decoded integer value.
  */
-int64_t slebDecode(const uint8_t *buffer, size_t *offset);
+int64_t sleb_decode(const uint8_t *buffer, size_t *offset);
 
 /**
  * @brief Parse byte array of unsigned txn and store decoded information to be
@@ -84,5 +89,21 @@ int64_t slebDecode(const uint8_t *buffer, size_t *offset);
 bool icp_parse_transfer_txn(const uint8_t *byte_array,
                             uint16_t byte_array_size,
                             icp_transfer_t *utxn);
+
+/**
+ * @brief Hash icp_transfer_request_t structure using SHA-256.
+ *
+ * @param[in] request icp_transfer_request_t to hash
+ * @param[in] arg_size Size of icp_transfer_request_t.arg
+ * @param [out] hash The buffer to store the result hash
+ *
+ * @note The caller must ensure that `hash` has sufficient space to store the
+ * hash digest
+ *
+ * @return None.
+ */
+void hash_icp_transfer_request(const icp_transfer_request_t *request,
+                               size_t arg_size,
+                               uint8_t *hash);
 
 #endif /* ICP_TXN_HELPERS_H */

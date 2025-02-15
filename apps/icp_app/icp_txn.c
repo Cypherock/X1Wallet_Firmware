@@ -61,14 +61,19 @@
  * INCLUDES
  *****************************************************************************/
 
+#include <stdbool.h>
 #include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
 
 #include "base58.h"
 #include "icp_api.h"
 #include "icp_context.h"
 #include "icp_helpers.h"
 #include "icp_priv.h"
+#include "icp_txn_helpers.h"
 #include "reconstruct_wallet_flow.h"
+#include "sha2.h"
 #include "status_api.h"
 #include "ui_core_confirm.h"
 #include "ui_screens.h"
@@ -85,7 +90,7 @@
 /*****************************************************************************
  * PRIVATE TYPEDEFS
  *****************************************************************************/
-typedef icp_sign_txn_signature_response_signature_t der_sig_t;
+typedef icp_sign_txn_signature_response_signature_t sig_t;
 
 /*****************************************************************************
  * STATIC FUNCTION PROTOTYPES
@@ -180,7 +185,7 @@ static bool get_user_verification(void);
  * @return false If signature could not be computed - maybe due to some error
  * during seed reconstruction phase
  */
-static bool sign_txn(der_sig_t *der_signature);
+static bool sign_txn(sig_t *der_signature);
 
 /**
  * @brief Sends signature of the ICP unsigned txn to the host
@@ -193,7 +198,7 @@ static bool sign_txn(der_sig_t *der_signature);
  * @return false If the signature could not be sent - maybe due to and P0 event
  * or invalid request received from the host
  */
-static bool send_signature(icp_query_t *query, const der_sig_t *der_signature);
+static bool send_signature(icp_query_t *query, const sig_t *der_signature);
 
 /*****************************************************************************
  * STATIC VARIABLES
@@ -313,31 +318,29 @@ static bool fetch_valid_input(icp_query_t *query) {
                    ERROR_DATA_FLOW_INVALID_DATA);
     return false;
   }
-  icp_txn_context->raw_txn =
-      (icp_unsigned_txn *)malloc(sizeof(icp_unsigned_txn));
+  icp_txn_context->raw_icp_transfer_txn =
+      (icp_transfer_t *)malloc(sizeof(icp_transfer_t));
 
-  // TODO: parse transaction
+  if (!icp_parse_transfer_txn(icp_txn_context->transaction,
+                              total_size,
+                              icp_txn_context->raw_icp_transfer_txn)) {
+    icp_send_error(ERROR_COMMON_ERROR_CORRUPT_DATA_TAG,
+                   ERROR_DATA_FLOW_INVALID_DATA);
+    return false;
+  }
 
   return true;
 }
 
 static bool get_user_verification(void) {
-  const icp_unsigned_txn *decoded_utxn = icp_txn_context->raw_txn;
+  const icp_transfer_t *decoded_utxn = icp_txn_context->raw_icp_transfer_txn;
 
-  char to_address[ICP_ACCOUNT_ADDRESS_LENGTH] = "";
+  char to_address[ICP_ACCOUNT_ID_LENGTH * 2 + 1] = "";
 
-  uint8_t prefixed_account_id[ICP_PREFIXED_ACCOUNT_ID_LENGTH];
-  prefixed_account_id[0] = 0x00;
-  memcpy(prefixed_account_id + 1, decoded_utxn->Destination, 20);
-
-  if (!base58_encode_check(prefixed_account_id,
-                           ICP_PREFIXED_ACCOUNT_ID_LENGTH,
-                           HASHER_SHA2D,
+  byte_array_to_hex_string(decoded_utxn->to,
+                           ICP_ACCOUNT_ID_LENGTH,
                            to_address,
-                           ICP_ACCOUNT_ADDRESS_LENGTH + 1)) {
-    icp_send_error(ERROR_COMMON_ERROR_UNKNOWN_ERROR_TAG, 2);
-    return false;
-  }
+                           ICP_ACCOUNT_ID_LENGTH * 2 + 1);
 
   if (!core_scroll_page(ui_text_verify_address, to_address, icp_send_error)) {
     return false;
@@ -345,11 +348,11 @@ static bool get_user_verification(void) {
 
   // verify recipient amount
   uint64_t amount = 0;
-  memcpy(&amount, &decoded_utxn->Amount, sizeof(uint64_t));
+  memcpy(&amount, &decoded_utxn->amount->e8s, sizeof(uint64_t));
   char amount_string[30] = {'\0'};
   double decimal_amount = (double)amount;
-  decimal_amount *= 1e-6;
-  snprintf(amount_string, sizeof(amount_string), "%.6f", decimal_amount);
+  decimal_amount *= 1e-8;
+  snprintf(amount_string, sizeof(amount_string), "%.8f", decimal_amount);
 
   char display[100] = {'\0'};
   snprintf(display,
@@ -362,18 +365,29 @@ static bool get_user_verification(void) {
     return false;
   }
 
-  if (decoded_utxn->hasDestinationTag) {
-    // verify destination tag
-    uint32_t tag = 0;
-    memcpy(&tag, &decoded_utxn->DestinationTag, sizeof(uint32_t));
+  // verify transaction fee
+  uint64_t fee = 0;
+  memcpy(&fee, &decoded_utxn->fee->e8s, sizeof(uint64_t));
+  char fee_string[30] = {'\0'};
+  double decimal_fee = (double)fee;
+  decimal_fee *= 1e-8;
+  snprintf(fee_string, sizeof(fee_string), "%.8f", decimal_fee);
 
-    char display_tag[50] = {'\0'};
-    snprintf(
-        display_tag, sizeof(display_tag), UI_TEXT_VERIFY_DESTINATION_TAG, tag);
+  snprintf(
+      display, sizeof(display), UI_TEXT_SEND_TXN_FEE, fee_string, ICP_LUNIT);
+  if (!core_scroll_page(UI_TEXT_TXN_FEE, display, icp_send_error)) {
+    return false;
+  }
 
-    if (!core_confirmation(display_tag, icp_send_error)) {
-      return false;
-    }
+  // verify memo
+  char display_memo[50] = {'\0'};
+  snprintf(display_memo,
+           sizeof(display_memo),
+           UI_TEXT_VERIFY_MEMO,
+           decoded_utxn->memo);
+
+  if (!core_confirmation(display_memo, icp_send_error)) {
+    return false;
   }
 
   set_app_flow_status(ICP_SIGN_TXN_STATUS_VERIFY);
@@ -381,7 +395,7 @@ static bool get_user_verification(void) {
   return true;
 }
 
-static bool sign_txn(der_sig_t *der_signature) {
+static bool sign_txn(sig_t *signature) {
   uint8_t seed[64] = {0};
   if (!reconstruct_seed(
           icp_txn_context->init_info.wallet_id, seed, icp_send_error)) {
@@ -392,10 +406,69 @@ static bool sign_txn(der_sig_t *der_signature) {
 
   set_app_flow_status(ICP_SIGN_TXN_STATUS_SEED_GENERATED);
 
-  uint8_t digest[SHA512_DIGEST_LENGTH] = {0};
-  sha512_Raw(icp_txn_context->transaction,
-             icp_txn_context->init_info.transaction_size,
-             digest);
+  icp_transfer_request_t request = {
+      .request_type = "call",
+      .canister_id = {0, 0, 0, 0, 0, 0, 0, 2, 1, 1},
+      .method_name = "transfer",
+      .arg = icp_txn_context->transaction,
+      .sender = {227, 137, 21,  196, 210, 48,  9,   104, 105, 112,
+                 145, 141, 222, 4,   35,  30,  243, 77,  211, 3,
+                 202, 109, 129, 195, 8,   221, 52,  126, 2},
+      .ingress_expiry = 1739537460000000000,
+      .nonce = {0xd3,
+                0x86,
+                0xb7,
+                0xab,
+                0x9b,
+                0x5e,
+                0x1c,
+                0x0f,
+                0x81,
+                0x66,
+                0xdc,
+                0x17,
+                0xf9,
+                0x63,
+                0x58,
+                0x02}};
+
+  uint8_t request_id[32];
+  hash_icp_transfer_request(
+      &request, icp_txn_context->init_info.transaction_size, request_id);
+
+  char req[32 * 2 + 1] = "";
+
+  byte_array_to_hex_string(request_id, 32, req, 32 * 2 + 1);
+
+  if (!core_scroll_page("request_id", req, icp_send_error)) {
+    return;
+  }
+
+  uint8_t domain_separator[11] = {
+      10, 105, 99, 45, 114, 101, 113, 117, 101, 115, 116};
+
+  uint8_t result[43] = {0};
+  memcpy(result, domain_separator, 11);
+  memcpy(result + 11, request_id, 32);
+
+  char res[43 * 2 + 1] = "";
+
+  byte_array_to_hex_string(result, 43, res, 43 * 2 + 1);
+
+  if (!core_scroll_page("challenge", res, icp_send_error)) {
+    return;
+  }
+
+  uint8_t digest[32] = {0};
+  sha256_Raw(result, 43, digest);
+
+  char dig[32 * 2 + 1] = "";
+
+  byte_array_to_hex_string(digest, 32, dig, 32 * 2 + 1);
+
+  if (!core_scroll_page("challenge_hash", dig, icp_send_error)) {
+    return;
+  }
 
   HDNode hdnode = {0};
   derive_hdnode_from_path(icp_txn_context->init_info.derivation_path,
@@ -404,21 +477,19 @@ static bool sign_txn(der_sig_t *der_signature) {
                           seed,
                           &hdnode);
 
-  uint8_t signature[64];
+  signature->size = 64;
   ecdsa_sign_digest(
-      &secp256k1, hdnode.private_key, digest, signature, NULL, NULL);
-
-  der_signature->size = ecdsa_sig_to_der(signature, der_signature->bytes);
+      &secp256k1, hdnode.private_key, digest, signature->bytes, NULL, NULL);
 
   memzero(digest, sizeof(digest));
   memzero(seed, sizeof(seed));
   memzero(&hdnode, sizeof(hdnode));
-  memzero(signature, sizeof(signature));
+  // memzero(signature, sizeof(signature));
 
   return true;
 }
 
-static bool send_signature(icp_query_t *query, const der_sig_t *der_signature) {
+static bool send_signature(icp_query_t *query, const sig_t *signature) {
   icp_result_t result = init_icp_result(ICP_RESULT_SIGN_TXN_TAG);
   result.sign_txn.which_response = ICP_SIGN_TXN_RESPONSE_SIGNATURE_TAG;
 
@@ -427,8 +498,7 @@ static bool send_signature(icp_query_t *query, const der_sig_t *der_signature) {
     return false;
   }
 
-  memcpy(
-      &result.sign_txn.signature.signature, der_signature, sizeof(der_sig_t));
+  memcpy(&result.sign_txn.signature.signature, signature, sizeof(sig_t));
 
   icp_send_result(&result);
   return true;
@@ -442,11 +512,11 @@ void icp_sign_transaction(icp_query_t *query) {
   icp_txn_context = (icp_txn_context_t *)malloc(sizeof(icp_txn_context_t));
   memzero(icp_txn_context, sizeof(icp_txn_context_t));
 
-  der_sig_t der_signature = {0};
+  sig_t signature = {0};
 
   if (handle_initiate_query(query) && fetch_valid_input(query) &&
-      get_user_verification() && sign_txn(&der_signature) &&
-      send_signature(query, &der_signature)) {
+      get_user_verification() && sign_txn(&signature) &&
+      send_signature(query, &signature)) {
     delay_scr_init(ui_text_check_cysync, DELAY_TIME);
   }
 

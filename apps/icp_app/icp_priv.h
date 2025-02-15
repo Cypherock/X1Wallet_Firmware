@@ -30,6 +30,7 @@ typedef struct {
 
   // remembers the allocated buffer for holding complete unsigned transaction
   uint8_t *transaction;
+  // icp_transfer_request_t icp_transfer_req;
 
   // decoded raw txn
   icp_transfer_t *raw_icp_transfer_txn;
