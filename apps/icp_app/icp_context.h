@@ -87,16 +87,6 @@ typedef struct {
   uint64_t memo;
 } icp_transfer_t;
 
-typedef struct {
-  char request_type[5];    // "call"
-  uint8_t canister_id[10];
-  char method_name[9];                     // "transfer"
-  uint8_t *arg;                            // candid encoded transfer txn
-  uint8_t sender[ICP_PRINCIPAL_LENGTH];    // principal
-  uint64_t ingress_expiry;
-  uint8_t nonce[16];
-} icp_transfer_request_t;
-
 /*****************************************************************************
  * EXPORTED VARIABLES
  *****************************************************************************/

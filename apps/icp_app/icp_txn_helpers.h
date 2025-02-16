@@ -17,6 +17,7 @@
 #include <stdint.h>
 
 #include "icp_context.h"
+#include "icp_priv.h"
 
 /*****************************************************************************
  * MACROS AND DEFINES
@@ -94,7 +95,6 @@ bool icp_parse_transfer_txn(const uint8_t *byte_array,
  * @brief Hash icp_transfer_request_t structure using SHA-256.
  *
  * @param[in] request icp_transfer_request_t to hash
- * @param[in] arg_size Size of icp_transfer_request_t.arg
  * @param [out] hash The buffer to store the result hash
  *
  * @note The caller must ensure that `hash` has sufficient space to store the
@@ -103,7 +103,6 @@ bool icp_parse_transfer_txn(const uint8_t *byte_array,
  * @return None.
  */
 void hash_icp_transfer_request(const icp_transfer_request_t *request,
-                               size_t arg_size,
                                uint8_t *hash);
 
 #endif /* ICP_TXN_HELPERS_H */

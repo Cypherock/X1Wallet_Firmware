@@ -67,6 +67,7 @@
 #include <string.h>
 
 #include "base58.h"
+#include "icp/sign_txn.pb.h"
 #include "icp_api.h"
 #include "icp_context.h"
 #include "icp_helpers.h"
@@ -90,7 +91,7 @@
 /*****************************************************************************
  * PRIVATE TYPEDEFS
  *****************************************************************************/
-typedef icp_sign_txn_signature_response_signature_t sig_t;
+typedef icp_sign_txn_signature_response_t sig_t;
 
 /*****************************************************************************
  * STATIC FUNCTION PROTOTYPES
@@ -185,7 +186,7 @@ static bool get_user_verification(void);
  * @return false If signature could not be computed - maybe due to some error
  * during seed reconstruction phase
  */
-static bool sign_txn(sig_t *der_signature);
+static bool sign_txn(sig_t *signature);
 
 /**
  * @brief Sends signature of the ICP unsigned txn to the host
@@ -198,7 +199,7 @@ static bool sign_txn(sig_t *der_signature);
  * @return false If the signature could not be sent - maybe due to and P0 event
  * or invalid request received from the host
  */
-static bool send_signature(icp_query_t *query, const sig_t *der_signature);
+static bool send_signature(icp_query_t *query, const sig_t *signature);
 
 /*****************************************************************************
  * STATIC VARIABLES
@@ -274,55 +275,36 @@ static bool handle_initiate_query(const icp_query_t *query) {
 }
 
 static bool fetch_valid_input(icp_query_t *query) {
-  uint32_t size = 0;
-  icp_result_t response = init_icp_result(ICP_RESULT_SIGN_TXN_TAG);
-  uint32_t total_size = icp_txn_context->init_info.transaction_size;
-  const icp_sign_txn_data_t *txn_data = &query->sign_txn.txn_data;
-  const common_chunk_payload_t *payload = &txn_data->chunk_payload;
-  const common_chunk_payload_chunk_t *chunk = &txn_data->chunk_payload.chunk;
-
-  // allocate memory for storing transaction
-  icp_txn_context->transaction = (uint8_t *)malloc(total_size);
-  while (1) {
-    if (!icp_get_query(query, ICP_QUERY_SIGN_TXN_TAG) ||
-        !check_which_request(query, ICP_SIGN_TXN_REQUEST_TXN_DATA_TAG)) {
-      return false;
-    }
-
-    if (!txn_data->has_chunk_payload ||
-        payload->chunk_index >= payload->total_chunks ||
-        size + payload->chunk.size > total_size) {
-      icp_send_error(ERROR_COMMON_ERROR_CORRUPT_DATA_TAG,
-                     ERROR_DATA_FLOW_INVALID_DATA);
-      return false;
-    }
-
-    memcpy(&icp_txn_context->transaction[size], chunk->bytes, chunk->size);
-    size += chunk->size;
-    // Send chunk ack to host
-    response.sign_txn.which_response = ICP_SIGN_TXN_RESPONSE_DATA_ACCEPTED_TAG;
-    response.sign_txn.data_accepted.has_chunk_ack = true;
-    response.sign_txn.data_accepted.chunk_ack.chunk_index =
-        payload->chunk_index;
-    icp_send_result(&response);
-
-    if (0 == payload->remaining_size ||
-        payload->chunk_index + 1 == payload->total_chunks) {
-      break;
-    }
-  }
-
-  // make sure all chunks were received
-  if (size != total_size) {
-    icp_send_error(ERROR_COMMON_ERROR_CORRUPT_DATA_TAG,
-                   ERROR_DATA_FLOW_INVALID_DATA);
+  if (!icp_get_query(query, ICP_QUERY_SIGN_TXN_TAG) &&
+      !check_which_request(query, ICP_SIGN_TXN_REQUEST_TXN_DATA_TAG)) {
     return false;
   }
+
+  const icp_sign_txn_data_t *txn_data = &query->sign_txn.txn_data;
+  if (txn_data->has_icp_transfer_req == false) {
+    return false;
+  }
+
+  icp_txn_context->icp_transfer_req = &txn_data->icp_transfer_req;
+
+  // Verify request_type = "call"
+  if (memcmp(icp_txn_context->icp_transfer_req->request_type, "call", 4) != 0) {
+    return false;
+  }
+
+  // Verify method_name = "transfer"
+  if (memcmp(icp_txn_context->icp_transfer_req->method_name, "transfer", 8) !=
+      0) {
+    return false;
+  }
+
+  send_response(ICP_SIGN_TXN_RESPONSE_DATA_ACCEPTED_TAG);
+
   icp_txn_context->raw_icp_transfer_txn =
       (icp_transfer_t *)malloc(sizeof(icp_transfer_t));
 
-  if (!icp_parse_transfer_txn(icp_txn_context->transaction,
-                              total_size,
+  if (!icp_parse_transfer_txn(icp_txn_context->icp_transfer_req->arg.bytes,
+                              icp_txn_context->icp_transfer_req->arg.size,
                               icp_txn_context->raw_icp_transfer_txn)) {
     icp_send_error(ERROR_COMMON_ERROR_CORRUPT_DATA_TAG,
                    ERROR_DATA_FLOW_INVALID_DATA);
@@ -406,44 +388,10 @@ static bool sign_txn(sig_t *signature) {
 
   set_app_flow_status(ICP_SIGN_TXN_STATUS_SEED_GENERATED);
 
-  icp_transfer_request_t request = {
-      .request_type = "call",
-      .canister_id = {0, 0, 0, 0, 0, 0, 0, 2, 1, 1},
-      .method_name = "transfer",
-      .arg = icp_txn_context->transaction,
-      .sender = {227, 137, 21,  196, 210, 48,  9,   104, 105, 112,
-                 145, 141, 222, 4,   35,  30,  243, 77,  211, 3,
-                 202, 109, 129, 195, 8,   221, 52,  126, 2},
-      .ingress_expiry = 1739537460000000000,
-      .nonce = {0xd3,
-                0x86,
-                0xb7,
-                0xab,
-                0x9b,
-                0x5e,
-                0x1c,
-                0x0f,
-                0x81,
-                0x66,
-                0xdc,
-                0x17,
-                0xf9,
-                0x63,
-                0x58,
-                0x02}};
-
   uint8_t request_id[32];
-  hash_icp_transfer_request(
-      &request, icp_txn_context->init_info.transaction_size, request_id);
+  hash_icp_transfer_request(icp_txn_context->icp_transfer_req, request_id);
 
-  char req[32 * 2 + 1] = "";
-
-  byte_array_to_hex_string(request_id, 32, req, 32 * 2 + 1);
-
-  if (!core_scroll_page("request_id", req, icp_send_error)) {
-    return;
-  }
-
+  // "\x0Aic-request"
   uint8_t domain_separator[11] = {
       10, 105, 99, 45, 114, 101, 113, 117, 101, 115, 116};
 
@@ -451,24 +399,8 @@ static bool sign_txn(sig_t *signature) {
   memcpy(result, domain_separator, 11);
   memcpy(result + 11, request_id, 32);
 
-  char res[43 * 2 + 1] = "";
-
-  byte_array_to_hex_string(result, 43, res, 43 * 2 + 1);
-
-  if (!core_scroll_page("challenge", res, icp_send_error)) {
-    return;
-  }
-
   uint8_t digest[32] = {0};
   sha256_Raw(result, 43, digest);
-
-  char dig[32 * 2 + 1] = "";
-
-  byte_array_to_hex_string(digest, 32, dig, 32 * 2 + 1);
-
-  if (!core_scroll_page("challenge_hash", dig, icp_send_error)) {
-    return;
-  }
 
   HDNode hdnode = {0};
   derive_hdnode_from_path(icp_txn_context->init_info.derivation_path,
@@ -477,14 +409,12 @@ static bool sign_txn(sig_t *signature) {
                           seed,
                           &hdnode);
 
-  signature->size = 64;
   ecdsa_sign_digest(
-      &secp256k1, hdnode.private_key, digest, signature->bytes, NULL, NULL);
+      &secp256k1, hdnode.private_key, digest, signature->signature, NULL, NULL);
 
   memzero(digest, sizeof(digest));
   memzero(seed, sizeof(seed));
   memzero(&hdnode, sizeof(hdnode));
-  // memzero(signature, sizeof(signature));
 
   return true;
 }
@@ -498,7 +428,7 @@ static bool send_signature(icp_query_t *query, const sig_t *signature) {
     return false;
   }
 
-  memcpy(&result.sign_txn.signature.signature, signature, sizeof(sig_t));
+  memcpy(&result.sign_txn.signature, signature, sizeof(sig_t));
 
   icp_send_result(&result);
   return true;

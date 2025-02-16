@@ -67,7 +67,6 @@
 #include <string.h>
 
 #include "icp_context.h"
-#include "ui_core_confirm.h"
 #include "utils.h"
 
 /*****************************************************************************
@@ -327,23 +326,26 @@ bool icp_parse_transfer_txn(const uint8_t *byte_array,
  * first.
  */
 void hash_icp_transfer_request(const icp_transfer_request_t *request,
-                               size_t arg_size,
                                uint8_t *hash) {
   HashPair pairs[7];
   size_t pair_count = 0;
 
   hash_string("request_type", pairs[pair_count].key_hash);
-  hash_string(request->request_type, pairs[pair_count].value_hash);
+  sha256_Raw(request->request_type,
+             sizeof(request->request_type),
+             pairs[pair_count].value_hash);
   pair_count++;
 
   hash_string("canister_id", pairs[pair_count].key_hash);
-  sha256_Raw(request->canister_id,
-             sizeof(request->canister_id),
+  sha256_Raw(request->canister_id.bytes,
+             request->canister_id.size,
              pairs[pair_count].value_hash);
   pair_count++;
 
   hash_string("method_name", pairs[pair_count].key_hash);
-  hash_string(request->method_name, pairs[pair_count].value_hash);
+  sha256_Raw(request->method_name,
+             sizeof(request->method_name),
+             pairs[pair_count].value_hash);
   pair_count++;
 
   hash_string("sender", pairs[pair_count].key_hash);
@@ -352,7 +354,9 @@ void hash_icp_transfer_request(const icp_transfer_request_t *request,
   pair_count++;
 
   hash_string("ingress_expiry", pairs[pair_count].key_hash);
-  hash_leb128(request->ingress_expiry, pairs[pair_count].value_hash);
+  sha256_Raw(request->ingress_expiry.bytes,
+             request->ingress_expiry.size,
+             pairs[pair_count].value_hash);
   pair_count++;
 
   hash_string("nonce", pairs[pair_count].key_hash);
@@ -361,7 +365,8 @@ void hash_icp_transfer_request(const icp_transfer_request_t *request,
   pair_count++;
 
   hash_string("arg", pairs[pair_count].key_hash);
-  sha256_Raw(request->arg, arg_size, pairs[pair_count].value_hash);
+  sha256_Raw(
+      request->arg.bytes, request->arg.size, pairs[pair_count].value_hash);
   pair_count++;
 
   // Sort key-value pairs by key hash

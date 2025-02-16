@@ -1,4 +1,13 @@
 # Options for file common/cypherock-common/proto/icp/sign_txn.proto
 icp.SignTxnInitiateRequest.wallet_id type:FT_STATIC max_size:32 fixed_length:true
 icp.SignTxnInitiateRequest.derivation_path type:FT_STATIC max_count:5 fixed_length:true
-icp.SignTxnSignatureResponse.signature type:FT_STATIC max_size:72 fixed_length:false
+icp.SignTxnSignatureResponse.signature type:FT_STATIC max_size:64 fixed_length:true
+
+icp.TransferRequest.request_type type:FT_STATIC max_size:4 fixed_length:true
+icp.TransferRequest.canister_id type:FT_STATIC max_size:29 fixed_length:false
+icp.TransferRequest.method_name type:FT_STATIC max_size:8 fixed_length:true
+icp.TransferRequest.arg type:FT_STATIC max_size:200 fixed_length:false
+icp.TransferRequest.sender type:FT_STATIC max_size:29 fixed_length:true
+icp.TransferRequest.ingress_expiry type:FT_STATIC max_size:10 fixed_length:false
+icp.TransferRequest.nonce type:FT_STATIC max_size:16 fixed_length:true
+
